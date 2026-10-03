@@ -533,7 +533,7 @@ def _item(url, source="hackernews", engagement=100, pct=0.0, title="t"):
 
 
 def _judge(store, quality, relevance=7, verdict="v"):
-    _h, item = store.items_missing_judgment()[-1]
+    _h, item = store.items_missing_judgment()[0]
     store.save_judgment(Judgment(url_hash=_h, relevance=relevance, quality=quality,
                                  verdict=verdict, model="qwen2.5:7b", prompt_version="v3.1",
                                  judged_at="2026-10-03T00:01:00+00:00"))
