@@ -366,7 +366,7 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'devpulse.models'`
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -393,7 +393,7 @@ class Judgment:
 
 
 def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 ```
 
 ```python
@@ -605,7 +605,7 @@ In `docs/2026-10-03-devpulse-design.md` section 6, add `engagement_pct REAL,` di
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .models import Item, Judgment
 from .normalize import url_hash
@@ -710,7 +710,7 @@ class Store:
 
     def record_digest(self, item_count: int, judged_count: int,
                       skipped_reason: str | None) -> None:
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        now = datetime.now(UTC).isoformat(timespec="seconds")
         self.conn.execute(
             "INSERT INTO digests (posted_at, item_count, judged_count, skipped_reason)"
             " VALUES (?, ?, ?, ?)",
@@ -726,7 +726,7 @@ class Store:
         )
         args = list(params)
         if since_days is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
             sql += " AND j.judged_at >= ?"
             args.append(cutoff)
         sql += " ORDER BY j.quality DESC, i.engagement ASC"
@@ -1091,7 +1091,7 @@ git commit -m "feat: prompt v3.1 judge with retry, ram guard, unload"
 ```python
 # tests/test_collectors_github.py
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -1131,7 +1131,7 @@ def test_releases_filters_by_window():
     items = collect_releases(
         ["ollama/ollama"],
         transport=_transport("github_releases.json"),
-        now=datetime(2026, 10, 3, 6, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 10, 3, 6, 0, tzinfo=UTC),
     )
     assert [i.title for i in items] == ["ollama/ollama v0.5.0"]
     assert items[0].source == "github_release"
@@ -1170,7 +1170,7 @@ DEFAULT_COLLECTORS = [
 # src/devpulse/collectors/github.py
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Sequence
 
 import httpx
@@ -1225,7 +1225,7 @@ def collect_releases(watchlist: Sequence[str], token: str | None = None,
                      transport: httpx.BaseTransport | None = None,
                      now: datetime | None = None,
                      since_hours: int = 72, per_repo_cap: int = 2) -> list[Item]:
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     cutoff = current - timedelta(hours=since_hours)
     out: list[Item] = []
     for repo in watchlist:
