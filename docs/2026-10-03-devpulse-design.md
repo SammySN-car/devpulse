@@ -97,7 +97,8 @@ Schema (single file `devpulse.db`, git-ignored):
 items (
   url_hash TEXT PRIMARY KEY,   -- sha256 of normalized url
   url TEXT, title TEXT, source TEXT,
-  engagement INTEGER, context TEXT,
+  engagement INTEGER,
+  engagement_pct REAL, context TEXT,
   fetched_at TEXT
 );
 judgments (
