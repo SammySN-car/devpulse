@@ -1,0 +1,6 @@
+{
+  "hits": [
+    {"title": "Top story about Rust", "url": "https://blog.example.org/post",
+     "points": 400, "objectID": "9"}
+  ]
+}
