@@ -1153,16 +1153,11 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'devpulse.collectors'`
 
 ```python
 # src/devpulse/collectors/__init__.py
-from .devto import collect_articles
 from .github import collect_releases, collect_rising
-from .hackernews import collect_show_hn, collect_top
 
 DEFAULT_COLLECTORS = [
     collect_rising,
     collect_releases,
-    collect_show_hn,
-    collect_top,
-    collect_articles,
 ]
 ```
 
@@ -1170,8 +1165,8 @@ DEFAULT_COLLECTORS = [
 # src/devpulse/collectors/github.py
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
-from typing import Sequence
 
 import httpx
 
@@ -1398,6 +1393,23 @@ def collect_top(limit: int = 8, transport: httpx.BaseTransport | None = None) ->
     return _to_items(_get({"tags": "front_page", "hitsPerPage": limit}, transport))[:limit]
 ```
 
+- [ ] **Step 4b: Register the collector in the package registry**
+
+Append to `src/devpulse/collectors/__init__.py` (full resulting content):
+
+```python
+# src/devpulse/collectors/__init__.py
+from .github import collect_releases, collect_rising
+from .hackernews import collect_show_hn, collect_top
+
+DEFAULT_COLLECTORS = [
+    collect_rising,
+    collect_releases,
+    collect_show_hn,
+    collect_top,
+]
+```
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_collectors_hn.py -v`
@@ -1406,7 +1418,7 @@ Expected: 3 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/devpulse/collectors/hackernews.py tests/fixtures/hn_*.json tests/test_collectors_hn.py
+git add src/devpulse/collectors/hackernews.py src/devpulse/collectors/__init__.py tests/fixtures/hn_*.json tests/test_collectors_hn.py
 git commit -m "feat: hacker news show and top collectors via algolia"
 ```
 
@@ -1513,6 +1525,25 @@ def collect_articles(limit: int = 8, transport: httpx.BaseTransport | None = Non
     return out
 ```
 
+- [ ] **Step 4b: Register the collector in the package registry**
+
+Append to `src/devpulse/collectors/__init__.py` (full resulting content):
+
+```python
+# src/devpulse/collectors/__init__.py
+from .devto import collect_articles
+from .github import collect_releases, collect_rising
+from .hackernews import collect_show_hn, collect_top
+
+DEFAULT_COLLECTORS = [
+    collect_rising,
+    collect_releases,
+    collect_show_hn,
+    collect_top,
+    collect_articles,
+]
+```
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_collectors_devto.py -v`
@@ -1521,7 +1552,7 @@ Expected: 2 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/devpulse/collectors/devto.py tests/fixtures/devto_articles.json tests/test_collectors_devto.py
+git add src/devpulse/collectors/devto.py src/devpulse/collectors/__init__.py tests/fixtures/devto_articles.json tests/test_collectors_devto.py
 git commit -m "feat: dev.to article collector"
 ```
 
