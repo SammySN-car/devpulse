@@ -1,0 +1,14 @@
+[
+  {
+    "tag_name": "v0.5.0",
+    "html_url": "https://github.com/ollama/ollama/releases/tag/v0.5.0",
+    "created_at": "2026-10-03T01:00:00Z",
+    "body": "new model support"
+  },
+  {
+    "tag_name": "v0.4.0",
+    "html_url": "https://github.com/ollama/ollama/releases/tag/v0.4.0",
+    "created_at": "2026-09-20T01:00:00Z",
+    "body": "old"
+  }
+]
