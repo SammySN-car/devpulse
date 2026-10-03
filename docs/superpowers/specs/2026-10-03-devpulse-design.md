@@ -85,6 +85,9 @@ Notes:
   trailing slash).
 - `engagement_pct` is computed *within the day's batch and source class* (raw stars,
   points, and reactions are not comparable across sources).
+- Release items are displayed in their own section and are never sleeper
+  candidates; only content items (GitHub rising, HN, dev.to) participate in
+  sleeper scoring.
 
 ## 6. Diff and storage (SQLite)
 
