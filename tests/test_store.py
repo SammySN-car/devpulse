@@ -1,5 +1,5 @@
 # tests/test_store.py
-from devpulse.models import Item, Judgment
+from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.store import Store
 
 
@@ -12,7 +12,7 @@ def _judge(store, quality, relevance=7, verdict="v"):
     _h, item = store.items_missing_judgment()[0]
     store.save_judgment(Judgment(url_hash=_h, relevance=relevance, quality=quality,
                                  verdict=verdict, model="qwen2.5:7b", prompt_version="v3.1",
-                                 judged_at="2026-10-03T00:01:00+00:00"))
+                                 judged_at=utcnow_iso()))
     return item
 
 
