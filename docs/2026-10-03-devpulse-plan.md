@@ -184,6 +184,8 @@ git commit -m "chore: scaffold package, tooling, and CI"
 
 ```python
 # tests/test_settings.py
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from devpulse.settings import Settings, load_settings
@@ -231,7 +233,7 @@ def test_rejects_malformed_digest_time(tmp_path):
 
 def test_is_frozen():
     s = Settings(discord_token="t", digest_channel_id=1)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         s.discord_token = "other"  # type: ignore[misc]
 ```
 
