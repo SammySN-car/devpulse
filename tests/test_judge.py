@@ -39,12 +39,16 @@ def test_parse_coerces_and_validates():
             parse_judgment(bad)
 
 
-def _judge_returning(bodies: list[str]) -> tuple[OllamaJudge, list[str]]:
+def _judge_returning(
+    bodies: list[str], payloads: list[dict] | None = None
+) -> tuple[OllamaJudge, list[str]]:
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.url.path)
         payload = json.loads(request.content)
+        if payloads is not None:
+            payloads.append(payload)
         if payload.get("keep_alive") == 0:
             return httpx.Response(200, json={})
         body = bodies.pop(0) if bodies else "{}"
@@ -65,6 +69,13 @@ def test_judge_retries_once_then_succeeds():
 def test_judge_returns_none_after_double_failure():
     judge, _calls = _judge_returning(["still garbage", "also garbage"])
     assert judge.judge(_item()) is None
+
+
+def test_unload_sends_keep_alive_zero():
+    payloads: list[dict] = []
+    judge, _calls = _judge_returning([], payloads)
+    judge.unload()
+    assert payloads == [{"model": "qwen2.5:7b", "keep_alive": 0}]
 
 
 def test_batch_guard_boundary_sequential_and_unload_once():
