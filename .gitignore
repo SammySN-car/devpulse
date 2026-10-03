@@ -1,0 +1,24 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets & local state
+.env
+*.db
+*.sqlite3
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Logs (parking-app lesson: never commit these)
+*.log
+server_out.txt
+server_err.txt
+
+# OS
+Thumbs.db
+.DS_Store
