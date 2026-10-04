@@ -59,6 +59,19 @@ def test_commands_read_store():
     assert "10 scanned, 5 judged" in cmd_status(s)
 
 
+def test_cmd_releases_appends_release_url():
+    s = _store()
+    url = "https://github.com/langchain-ai/langchain/releases/tag/v1.2.3"
+    s.insert_items([Item(url=url, title="langchain v1.2.3", source="github_release",
+                         engagement=500, context="release notes",
+                         fetched_at="2026-10-03T00:00:00+00:00")])
+    out = cmd_releases(s)
+    assert "recent releases:" in out
+    assert "langchain v1.2.3" in out
+    assert url in out
+    assert f"- langchain v1.2.3 {url}" in out
+
+
 def test_safe_run_never_raises():
     def boom():
         raise RuntimeError("ollama down")

@@ -41,8 +41,31 @@ def test_full_digest_exact_layout_no_emoji():
     assert "SLEEPER PICK" in msg
     assert "carol/sleeper" in msg
     assert "NEW RELEASES" in msg and "ollama v0.5" in msg
+    assert "- ollama v0.5 (release body: notes) https://r" in msg
     assert "42 scanned, 18 judged, 6.4 min, qwen2.5:7b, on-device" in msg
     assert not _EMOJI.search(msg)
+
+
+def _release_line(url):
+    msg = compose_digest(
+        "d", top=[], sleeper=None,
+        releases=[Item(url=url, title="langchain v1.2.3", source="github_release",
+                       engagement=1, context="release notes",
+                       fetched_at="2026-10-03")],
+        stats=_stats(judged=1), model="m",
+    )
+    return next(line for line in msg.splitlines() if "langchain" in line)
+
+
+def test_release_line_appends_bare_url():
+    url = "https://github.com/langchain-ai/langchain/releases/tag/v1.2.3"
+    assert _release_line(url) == f"- langchain v1.2.3 (release notes) {url}"
+
+
+def test_release_line_empty_url_adds_nothing():
+    line = _release_line("")
+    assert line == "- langchain v1.2.3 (release notes)"
+    assert not line.endswith(" ")
 
 
 def test_sleeper_section_uses_gate_and_omits_when_ineligible():

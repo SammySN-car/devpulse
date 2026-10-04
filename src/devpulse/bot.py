@@ -67,7 +67,8 @@ def cmd_releases(store: Store) -> str:
     releases = store.releases()
     if not releases:
         return "no new watchlist releases"
-    return "recent releases:\n" + "\n".join(f"- {r.title}" for r in releases)
+    return "recent releases:\n" + "\n".join(
+        f"- {r.title}" + (f" {r.url}" if r.url else "") for r in releases)
 
 
 def cmd_status(store: Store) -> str:

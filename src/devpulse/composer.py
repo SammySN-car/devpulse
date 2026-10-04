@@ -98,5 +98,6 @@ def _render_releases(releases: list[Item]) -> str:
         return ""
     lines = ["NEW RELEASES"]
     for rel in releases[:5]:
-        lines.append(f"- {_clip(rel.title, TITLE_CAP)} ({rel.context})")
+        lines.append(f"- {_clip(rel.title, TITLE_CAP)} ({rel.context})"
+                     + (f" {rel.url}" if rel.url else ""))
     return "\n".join(lines)
