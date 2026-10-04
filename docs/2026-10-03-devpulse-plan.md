@@ -1024,7 +1024,7 @@ def batch_judge(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_judge.py -v`
-Expected: 5 passed (live deselected). Then, with Ollama running: `python -m pytest -m live tests/test_judge.py -v` -> 1 passed.
+Expected: 6 passed (live deselected). Then, with Ollama running: `python -m pytest -m live tests/test_judge.py -v` -> 1 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -1772,7 +1772,7 @@ Note: `judge_factory` in tests returns the same `FakeJudge` instance each call, 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_pipeline.py -v`
-Expected: 3 passed. If `pcts["high"]` assertion is wrong (1 of 2 below 900 -> 0.5 is correct: only engagement 10 < 900), keep 0.5. Fix only the test's misleading comment, not the code.
+Expected: 4 passed. If `pcts["high"]` assertion is wrong (1 of 2 below 900 -> 0.5 is correct: only engagement 10 < 900), keep 0.5. Fix only the test's misleading comment, not the code.
 
 - [ ] **Step 5: Commit**
 
@@ -2027,7 +2027,7 @@ def _render_releases(releases: list[Item]) -> str:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_composer.py -v`
-Expected: 4 passed
+Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
@@ -2054,10 +2054,10 @@ git commit -m "feat: digest composer with emoji guard and discord length cap"
 from datetime import datetime
 
 from devpulse.bot import (
-    build_run_digest, can_refresh, cmd_dig, cmd_releases, cmd_sleeper, cmd_status,
-    safe_run, seconds_until,
+    _first_ready, build_run_digest, can_refresh, cmd_dig, cmd_releases,
+    cmd_sleeper, cmd_status, safe_run, seconds_until,
 )
-from devpulse.models import Item, Judgment
+from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.settings import Settings
 from devpulse.store import Store
 
@@ -2070,7 +2070,7 @@ def _seed(store, title="carol/sleeper", quality=9, pct=0.2, source="github_risin
     store.save_judgment(Judgment(url_hash=h, relevance=8, quality=quality,
                                  verdict="underrated gem. yes", model="m",
                                  prompt_version="v3.1",
-                                 judged_at="2026-10-03T00:01:00+00:00"))
+                                 judged_at=utcnow_iso()))
 
 
 def _store():
@@ -2110,6 +2110,12 @@ def test_safe_run_never_raises():
 
     assert safe_run(boom) == "daily run skipped: ollama down"
     assert safe_run(lambda: "ok") == "ok"
+
+
+def test_first_ready_transitions_once():
+    state: dict[str, bool] = {}
+    assert _first_ready(state) is True
+    assert _first_ready(state) is False
 
 
 def test_build_run_digest_composes_full_message():
@@ -2370,7 +2376,7 @@ devpulse = "devpulse.main:main"
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_bot.py -v`
-Expected: 5 passed. Then full suite: `python -m pytest -v` -> all green; `ruff check .` -> clean.
+Expected: 7 passed. Then full suite: `python -m pytest -v` -> all green; `ruff check .` -> clean.
 
 - [ ] **Step 6: Commit**
 
