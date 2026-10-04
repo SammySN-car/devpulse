@@ -30,6 +30,14 @@ subscription, nothing you fetch leaves the machine.
 | `/status` | last run, counts, judge health |
 | `/refresh` | owner-only: run a digest now |
 
+## Roadmap
+
+Today the digest sends **TOP 5**: a Discord message is capped at 2000 characters,
+so the ranked, judged list has to fit in one post. Next iterations will widen
+that budget - think top 50 across a thread or paginated messages - richer verdict
+formats, and a packaged deploy so anyone can run their own instance for their
+own circle.
+
 ## Development
 
 - `pytest` runs the hermetic suite (no network, no model)
