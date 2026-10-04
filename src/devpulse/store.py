@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 
 from .models import Item, Judgment
@@ -41,93 +42,107 @@ CREATE TABLE IF NOT EXISTS digests (
 
 class Store:
     def __init__(self, path: str = ":memory:") -> None:
-        self.conn = sqlite3.connect(path)
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
 
     def init_schema(self) -> None:
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
+        with self._lock:
+            self.conn.executescript(SCHEMA)
+            self.conn.commit()
 
     def insert_items(self, items: list[Item]) -> None:
-        self.conn.executemany(
-            "INSERT OR IGNORE INTO items (url_hash, url, title, source, engagement,"
-            " engagement_pct, context, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [(url_hash(i.url), i.url, i.title, i.source, i.engagement,
-              i.engagement_pct, i.context, i.fetched_at) for i in items],
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.executemany(
+                "INSERT OR IGNORE INTO items (url_hash, url, title, source, engagement,"
+                " engagement_pct, context, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(url_hash(i.url), i.url, i.title, i.source, i.engagement,
+                  i.engagement_pct, i.context, i.fetched_at) for i in items],
+            )
+            self.conn.commit()
 
     def items_missing_judgment(self) -> list[tuple[str, Item]]:
-        rows = self.conn.execute(
-            "SELECT i.* FROM items i LEFT JOIN judgments j USING (url_hash)"
-            " WHERE j.url_hash IS NULL ORDER BY i.fetched_at, i.url"
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT i.* FROM items i LEFT JOIN judgments j USING (url_hash)"
+                " WHERE j.url_hash IS NULL ORDER BY i.fetched_at, i.url"
+            ).fetchall()
         return [(r["url_hash"], _item_from_row(r)) for r in rows]
 
     def save_judgment(self, j: Judgment) -> None:
-        self.conn.execute(
-            "INSERT OR IGNORE INTO judgments (url_hash, relevance, quality, verdict,"
-            " model, prompt_version, status, judged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (j.url_hash, j.relevance, j.quality, j.verdict, j.model,
-             j.prompt_version, j.status, j.judged_at),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO judgments (url_hash, relevance, quality, verdict,"
+                " model, prompt_version, status, judged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (j.url_hash, j.relevance, j.quality, j.verdict, j.model,
+                 j.prompt_version, j.status, j.judged_at),
+            )
+            self.conn.commit()
 
     def judged_rows(self, since_days: int = 7) -> list[tuple[Item, Judgment]]:
-        return self._joined("j.status = 'ok'", since_days)
+        with self._lock:
+            return self._joined("j.status = 'ok'", since_days)
 
     def sleepers(self, since_days: int = 7) -> list[tuple[Item, Judgment]]:
-        return self._joined(
-            "j.status = 'ok' AND j.quality >= ? AND i.engagement_pct <= ?"
-            " AND i.source <> 'github_release'",
-            since_days,
-            params=(SLEEPER_MIN_QUALITY, SLEEPER_MAX_ENGAGEMENT_PCT),
-        )
+        with self._lock:
+            return self._joined(
+                "j.status = 'ok' AND j.quality >= ? AND i.engagement_pct <= ?"
+                " AND i.source <> 'github_release'",
+                since_days,
+                params=(SLEEPER_MIN_QUALITY, SLEEPER_MAX_ENGAGEMENT_PCT),
+                order="j.quality * (1.0 - i.engagement_pct) DESC, i.engagement ASC",
+            )
 
     def releases(self, limit: int = 10) -> list[Item]:
-        rows = self.conn.execute(
-            "SELECT * FROM items WHERE source = 'github_release'"
-            " ORDER BY fetched_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM items WHERE source = 'github_release'"
+                " ORDER BY fetched_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [_item_from_row(r) for r in rows]
 
     def search(self, term: str) -> list[tuple[Item, Judgment]]:
         like = f"%{term}%"
-        return self._joined(
-            "j.status = 'ok' AND (i.title LIKE ? OR i.context LIKE ?)",
-            since_days=None, params=(like, like),
-        )
+        with self._lock:
+            return self._joined(
+                "j.status = 'ok' AND (i.title LIKE ? OR i.context LIKE ?)",
+                since_days=None, params=(like, like),
+            )
 
     def last_digest(self) -> tuple | None:
-        row = self.conn.execute(
-            "SELECT id, item_count, judged_count, skipped_reason, posted_at"
-            " FROM digests ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id, item_count, judged_count, skipped_reason, posted_at"
+                " FROM digests ORDER BY id DESC LIMIT 1"
+            ).fetchone()
         return tuple(row) if row else None
 
     def record_digest(self, item_count: int, judged_count: int,
                       skipped_reason: str | None) -> None:
         now = datetime.now(UTC).isoformat(timespec="seconds")
-        self.conn.execute(
-            "INSERT INTO digests (posted_at, item_count, judged_count, skipped_reason)"
-            " VALUES (?, ?, ?, ?)",
-            (now, item_count, judged_count, skipped_reason),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO digests (posted_at, item_count, judged_count, skipped_reason)"
+                " VALUES (?, ?, ?, ?)",
+                (now, item_count, judged_count, skipped_reason),
+            )
+            self.conn.commit()
 
-    def _joined(self, where: str, since_days: int | None, params: tuple = ()) -> list:
-        sql = (
-            "SELECT i.*, j.relevance, j.quality, j.verdict, j.model, j.prompt_version,"
-            " j.status, j.judged_at FROM items i JOIN judgments j USING (url_hash)"
-            f" WHERE {where}"
-        )
-        args = list(params)
-        if since_days is not None:
-            cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
-            sql += " AND j.judged_at >= ?"
-            args.append(cutoff)
-        sql += " ORDER BY j.quality DESC, i.engagement ASC"
-        rows = self.conn.execute(sql, args).fetchall()
+    def _joined(self, where: str, since_days: int | None, params: tuple = (),
+                order: str = "j.quality DESC, i.engagement ASC") -> list:
+        with self._lock:
+            sql = (
+                "SELECT i.*, j.relevance, j.quality, j.verdict, j.model, j.prompt_version,"
+                " j.status, j.judged_at FROM items i JOIN judgments j USING (url_hash)"
+                f" WHERE {where}"
+            )
+            args = list(params)
+            if since_days is not None:
+                cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
+                sql += " AND j.judged_at >= ?"
+                args.append(cutoff)
+            sql += f" ORDER BY {order}"
+            rows = self.conn.execute(sql, args).fetchall()
         return [(_item_from_row(r), _judgment_from_row(r)) for r in rows]
 
 

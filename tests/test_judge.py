@@ -104,6 +104,49 @@ def test_batch_guard_boundary_sequential_and_unload_once():
     assert batch_judge([], FakeJudge()) == ([], None)  # empty: no unload call made
 
 
+def test_batch_all_fail_returns_unavailable_skip():
+    class AllFailJudge:
+        def judge(self, item):
+            return None
+
+        def unload(self):
+            pass
+
+    results, skipped = batch_judge([_item("a"), _item("b")], AllFailJudge(),
+                                   free_ram=lambda: 9999)
+    assert results == []
+    assert skipped == "judge unavailable (2 items failed)"
+
+
+def test_batch_unload_failure_does_not_escape():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    judge = OllamaJudge(model="qwen2.5:7b", transport=httpx.MockTransport(handler))
+    results, skipped = batch_judge([_item("a"), _item("b")], judge,
+                                   free_ram=lambda: 9999)
+    assert results == []
+    assert skipped == "judge unavailable (2 items failed)"
+
+
+def test_batch_partial_failure_keeps_skipped_none():
+    class PartialJudge:
+        def __init__(self):
+            self.calls = 0
+
+        def judge(self, item):
+            self.calls += 1
+            return (8, 8, "v") if self.calls == 1 else None
+
+        def unload(self):
+            pass
+
+    results, skipped = batch_judge([_item("a"), _item("b"), _item("c")],
+                                   PartialJudge(), free_ram=lambda: 9999)
+    assert len(results) == 1
+    assert skipped is None
+
+
 @pytest.mark.live
 def test_live_judgment_round_trip():
     judge = OllamaJudge(model="qwen2.5:7b")

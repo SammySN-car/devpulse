@@ -129,6 +129,11 @@ def batch_judge(
             parsed = judge.judge(item)
             if parsed is not None:
                 results.append((item, parsed))
+        if skipped is None and not results:
+            skipped = f"judge unavailable ({len(items)} items failed)"
         return results, skipped
     finally:
-        judge.unload()
+        try:
+            judge.unload()
+        except Exception as exc:
+            print(f"judge unload failed: {exc}")

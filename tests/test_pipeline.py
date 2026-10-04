@@ -1,4 +1,7 @@
 # tests/test_pipeline.py
+import httpx
+
+from devpulse.judge import OllamaJudge
 from devpulse.models import Item
 from devpulse.pipeline import run_pipeline
 from devpulse.store import Store
@@ -90,3 +93,24 @@ def test_guard_reason_blocks_judging_when_ram_low():
     assert stats.judged == 0
     assert stats.skipped_reason == "judge unavailable (free RAM below guard)"
     assert store.judged_rows() == []
+
+
+def test_all_fail_run_records_skip_digest_even_if_ollama_unreachable():
+    store = Store()
+    store.init_schema()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    def judge_factory():
+        return OllamaJudge(model="qwen2.5:7b", transport=httpx.MockTransport(handler))
+
+    stats = run_pipeline(store, judge_factory=judge_factory,
+                         collectors=[lambda: [_item("https://a/1"), _item("https://a/2")]],
+                         free_ram=lambda: 9999)
+    assert stats.scanned == 2
+    assert stats.judged == 0
+    assert stats.skipped_reason == "judge unavailable (2 items failed)"
+    row = store.last_digest()
+    assert row is not None
+    assert row[3] == "judge unavailable (2 items failed)"

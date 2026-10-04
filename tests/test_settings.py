@@ -45,6 +45,23 @@ def test_rejects_malformed_digest_time(tmp_path):
         load_settings(str(env))
 
 
+def test_digest_time_range_validation(tmp_path):
+    env = tmp_path / ".env"
+    for bad in ("24:00", "07:60", "99:99", "7:00"):
+        env.write_text(
+            "DISCORD_BOT_TOKEN=t\nDIGEST_CHANNEL_ID=1\n" f"DIGEST_TIME={bad}\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError):
+            load_settings(str(env))
+    for good in ("00:00", "07:00", "23:59"):
+        env.write_text(
+            "DISCORD_BOT_TOKEN=t\nDIGEST_CHANNEL_ID=1\n" f"DIGEST_TIME={good}\n",
+            encoding="utf-8",
+        )
+        assert load_settings(str(env)).digest_time == good
+
+
 def test_is_frozen():
     s = Settings(discord_token="t", digest_channel_id=1)
     with pytest.raises(FrozenInstanceError):

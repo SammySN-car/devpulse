@@ -92,9 +92,11 @@ def build_run_digest(settings: Settings, store: Store,
                              token=settings.github_token, watchlist=settings.watchlist,
                              model=settings.model, free_ram=free_ram,
                              guard_mb=guard_mb)
-        ranked = sorted(store.judged_rows(),
-                        key=lambda pair: (pair[1].relevance, pair[1].quality),
-                        reverse=True)[:5]
+        ranked = sorted(
+            (pair for pair in store.judged_rows() if pair[0].source != "github_release"),
+            key=lambda pair: (pair[1].relevance, pair[1].quality),
+            reverse=True,
+        )[:5]
         sleepers = store.sleepers()
         return compose_digest(
             date_str=str(datetime.now().date()),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-_TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 _ENV_KEYS = (
     "DISCORD_BOT_TOKEN",

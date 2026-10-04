@@ -127,3 +127,37 @@ def test_build_run_digest_ranks_by_relevance_then_quality():
     order = [msg.index(t)
              for t in ("rank-high", "rank-tie", "rank-mid", "rank-low")]
     assert order == sorted(order)
+
+
+def test_release_stays_out_of_top_but_appears_in_releases():
+    s = _store()
+    settings = Settings(discord_token="t", digest_channel_id=1,
+                        watchlist=("a/b",), model="qwen2.5:7b")
+    release_title = "ollama/ollama v9.9"
+
+    class ReleaseJudge:
+        def judge(self, item):
+            if item.source == "github_release":
+                return (10, 10, "shipped. yes")
+            return (8, 8, "useful. yes")
+
+        def unload(self):
+            pass
+
+    def collect():
+        items = [Item(url=f"https://x/reg-{n}", title=f"reg-{n}", source="github_rising",
+                      engagement=10 * n, context="c",
+                      fetched_at="2026-10-03T00:00:00+00:00")
+                 for n in range(1, 7)]
+        items.append(Item(url="https://x/rel", title=release_title, source="github_release",
+                          engagement=500, context="v9.9",
+                          fetched_at="2026-10-03T00:00:00+00:00"))
+        return items
+
+    run = build_run_digest(settings, s, collectors=[collect],
+                           judge_factory=ReleaseJudge,
+                           free_ram=lambda: 9999)
+    msg = run()
+    assert release_title in msg
+    assert s.items_missing_judgment() == []  # release left the pending state
+    assert msg.index("NEW RELEASES") < msg.index(release_title)

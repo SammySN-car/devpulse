@@ -1,4 +1,6 @@
 # tests/test_store.py
+import threading
+
 from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.store import Store
 
@@ -49,6 +51,20 @@ def test_sleepers_apply_gate_and_order():
     assert all(j.quality >= 7 for _it, j in s.sleepers())
 
 
+def test_sleepers_pick_argmax_of_formula_not_quality_desc():
+    s = Store()
+    s.init_schema()
+    s.insert_items([
+        _item("https://a/A", pct=0.40, title="A"),  # q10 * (1 - 0.40) = 6.0
+        _item("https://a/B", pct=0.0, title="B"),   # q8  * (1 - 0.00) = 8.0
+    ])
+    _judge(s, 10, relevance=8)  # A: highest quality, but low formula score
+    _judge(s, 8, relevance=8)   # B: lower quality, highest formula score
+    rows = s.sleepers()
+    assert len(rows) == 2  # both pass the gate
+    assert rows[0][0].title == "B"
+
+
 def test_releases_search_and_digest_log():
     s = Store()
     s.init_schema()
@@ -63,3 +79,51 @@ def test_releases_search_and_digest_log():
     s.record_digest(42, 18, None)
     row = s.last_digest()
     assert row is not None and row[1] == 42 and row[3] is None
+
+
+def test_cross_thread_write_and_read_round_trips(tmp_path):
+    store = Store(str(tmp_path / "threaded.db"))
+    store.init_schema()
+    errors: list[Exception] = []
+
+    def worker() -> None:
+        try:
+            store.insert_items([_item("https://a/thread", title="from worker")])
+            pending = store.items_missing_judgment()
+            h, item = pending[0]
+            store.save_judgment(Judgment(url_hash=h, relevance=8, quality=8,
+                                         verdict="v", model="m", prompt_version="v3.1",
+                                         judged_at=utcnow_iso()))
+            rows = store.judged_rows()
+            assert [it.title for it, _j in rows] == ["from worker"]
+        except Exception as exc:
+            errors.append(exc)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    assert errors == []
+    assert [it.title for it, _j in store.judged_rows()] == ["from worker"]
+
+
+def test_concurrent_writers_have_exact_row_count(tmp_path):
+    store = Store(str(tmp_path / "shared.db"))
+    store.init_schema()
+    per_writer = 25
+    errors: list[Exception] = []
+
+    def writer(tag: str) -> None:
+        try:
+            for i in range(per_writer):
+                store.insert_items([_item(f"https://w/{tag}/{i}", title=f"{tag}-{i}")])
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(tag,)) for tag in ("a", "b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    total = store.conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    assert total == 2 * per_writer
