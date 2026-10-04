@@ -84,8 +84,39 @@ def test_build_run_digest_composes_full_message():
                                   source="github_rising", engagement=50,
                                   context="c", fetched_at="2026-10-03T00:00:00+00:00")]],
         judge_factory=FakeJudge,
+        free_ram=lambda: 9999,
     )
     msg = run()
     assert "DevPulse Daily -" in msg
     assert "TOP 5 FOR YOU" in msg and "alice/tool" in msg
     assert "on-device" in msg
+
+
+def test_build_run_digest_ranks_by_relevance_then_quality():
+    s = _store()
+    settings = Settings(discord_token="t", digest_channel_id=1,
+                        watchlist=("a/b",), model="qwen2.5:7b")
+
+    class RankedJudge:
+        def judge(self, item):
+            table = {"rank-low": (3, 9), "rank-mid": (7, 7),
+                     "rank-tie": (7, 9), "rank-high": (9, 8)}
+            rel, qual = table[item.title]
+            return (rel, qual, "verdict. yes")
+
+        def unload(self):
+            pass
+
+    def scramble():
+        return [Item(url=f"https://x/{t}", title=t, source="github_rising",
+                     engagement=10, context="c",
+                     fetched_at="2026-10-03T00:00:00+00:00")
+                for t in ("rank-low", "rank-mid", "rank-tie", "rank-high")]
+
+    run = build_run_digest(settings, s, collectors=[scramble],
+                           judge_factory=RankedJudge,
+                           free_ram=lambda: 9999)
+    msg = run()
+    order = [msg.index(t)
+             for t in ("rank-high", "rank-tie", "rank-mid", "rank-low")]
+    assert order == sorted(order)

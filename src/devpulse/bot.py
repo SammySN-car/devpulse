@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 
 from .composer import compose_digest
-from .judge import OllamaJudge
+from .judge import OllamaJudge, free_ram_mb
 from .models import Item
 from .pipeline import run_pipeline
 from .settings import Settings
@@ -33,6 +33,13 @@ def safe_run(run_digest: Callable[[], str]) -> str:
         return run_digest()
     except Exception as exc:
         return f"daily run skipped: {exc}"
+
+
+def _first_ready(state: dict[str, bool]) -> bool:
+    if state.get("started"):
+        return False
+    state["started"] = True
+    return True
 
 
 def cmd_dig(store: Store, topic: str) -> str:
@@ -75,13 +82,16 @@ def cmd_status(store: Store) -> str:
 
 def build_run_digest(settings: Settings, store: Store,
                      collectors: Sequence[Callable[[], list[Item]]] | None = None,
-                     judge_factory: Callable[[], OllamaJudge] | None = None
+                     judge_factory: Callable[[], OllamaJudge] | None = None,
+                     *, free_ram: Callable[[], int] = free_ram_mb,
+                     guard_mb: int = 1500,
                      ) -> Callable[[], str]:
     def run() -> str:
         factory = judge_factory or (lambda: OllamaJudge(settings.model))
         stats = run_pipeline(store, judge_factory=factory, collectors=collectors,
                              token=settings.github_token, watchlist=settings.watchlist,
-                             model=settings.model)
+                             model=settings.model, free_ram=free_ram,
+                             guard_mb=guard_mb)
         ranked = sorted(store.judged_rows(),
                         key=lambda pair: (pair[1].relevance, pair[1].quality),
                         reverse=True)[:5]
@@ -138,8 +148,12 @@ def build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -
             if channel is not None:
                 await channel.send(msg[:1999])
 
+    state: dict[str, bool] = {}
+
     @bot.event
     async def on_ready() -> None:
+        if not _first_ready(state):
+            return
         await tree.sync()
         bot.loop.create_task(scheduler())
 
