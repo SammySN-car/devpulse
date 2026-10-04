@@ -1,4 +1,4 @@
-﻿# devpulse — Design Specification
+# devpulse — Design Specification
 
 Date: 2026-10-03
 Status: awaiting user review
@@ -105,7 +105,7 @@ judgments (
   url_hash TEXT PRIMARY KEY REFERENCES items(url_hash),
   relevance INTEGER, quality INTEGER, verdict TEXT,
   model TEXT, prompt_version TEXT,      -- enables deliberate re-judging later
-  status TEXT,                          -- 'ok' | 'unjudged'
+  status TEXT,                          -- always 'ok' today; reserved (see §7 erratum)
   judged_at TEXT
 );
 digests (
@@ -133,8 +133,14 @@ digests (
   - rules: use only provided text (no invented features); always respond in
     English; verdict is exactly two short lines (what it is; worth clicking yes/no)
   - output: `{"relevance": int, "quality": int, "verdict": str}`
-- Handling: one item per request; parse failure -> one retry -> `status='unjudged'`
-  and logged; non-`ok` runs surface in the digest footer or a skip message.
+- Handling: one item per request; parse failure -> one retry -> logged, item left
+  unjudged (no row) and retried on the next run; per-attempt failures surface as a
+  scanned/judged gap in the digest footer, and an all-fail run surfaces as a skip
+  message.
+  [erratum 2026-10-04] Failed items stay pending (LEFT JOIN NULL) instead of
+  writing a terminal `status='unjudged'` row, so retry is automatic and no
+  explicit re-judging operation is needed to recover; the `status` column stays
+  reserved for future deliberate re-judging.
 - Runtime budget: 15-40 items/day, sequential, 5-10 minutes; model receives
   `keep_alive: 0` immediately after the batch so RAM is reclaimed.
 

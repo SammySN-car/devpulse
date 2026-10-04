@@ -2480,3 +2480,30 @@ Push and open the GitHub repo only when the user explicitly asks.
 **3. Type consistency:** `judge_factory: Callable[[], OllamaJudge]` matches pipeline/bot/tests; `run_pipeline(...) -> DigestStats` matches composer's input; `Store.sleepers()` returns `list[tuple[Item, Judgment]]` in tasks 5, 11, 12; `batch_judge` results tuple shape `(Item, tuple[int,int,str])` is what pipeline unpacks. Two bugs fixed during review: (a) the pipeline's collector chain originally type-checked collectors against `DEFAULT_COLLECTORS` identity, which silently dropped token/watchlist binding - replaced with `_default_chain(token, watchlist)`; (b) the percentile test's expected values were recomputed from the actual formula (low=0.0, high=0.5). A stray import and a `__import__` hack in Task 12 were also removed rather than left as delete-me instructions.
 
 **4. Review Focus:** each of the five lines has its pinning test: (1) wrong-shape JSON -> `test_parse_coerces_and_validates`; (2) guard boundary -> `test_batch_guard_boundary_sequential_and_unload_once`; (3) 503 isolation -> collector 503 tests + `test_isolates_raising_collector_and_judges_deduped_items`; (4) degenerate percentiles -> `test_percentile_degenerate_groups`; (5) 2000-char overflow -> `test_overflow_drops_top_items_keeps_sleeper_and_footer` (plus `test_full_digest_exact_layout_no_emoji` for the emoji constraint).
+
+
+## Appendix: Final-review fix round (2026-10-04, commit 89dbb05)
+
+Post-Task-13 whole-branch review findings resolved in code; the task blocks above
+predate this round where they conflict. Authoritative deltas:
+
+- **Store (Task 5):** `sqlite3.connect(path, check_same_thread=False)` + `threading.RLock`
+  guarding all 11 conn-touching methods (C1: Store was main-thread, digest runs via
+  `asyncio.to_thread`). `_joined` gains `order: str = "j.quality DESC, i.engagement ASC"`;
+  `sleepers()` passes `"j.quality * (1.0 - i.engagement_pct) DESC, i.engagement ASC"`
+  (spec §8 argmax; `judged_rows`/`search` keep default).
+- **batch_judge (Task 6):** after the loop, when `items` non-empty, `skipped is None`,
+  and `results` empty -> `skipped = "judge unavailable (N items failed)"` (all-fail
+  surfacing; guard message preserved, partial failures leave `skipped=None`).
+  `finally: judge.unload()` wrapped in try/except + print so unreachable Ollama never
+  escapes `batch_judge` (record_digest now runs on outage path).
+- **bot (Task 12):** `ranked` filters `pair[0].source != "github_release"` before sort
+  (spec §5: releases only in their own section; releases stay judged to leave pending).
+- **settings (Task 2):** DIGEST_TIME regex `^([01]\d|2[0-3]):[0-5]\d$` (was format-only;
+  `24:00` crashed `seconds_until` inside the scheduler task).
+- **Tests:** 9 added (thread x2, release-rank, judge-failure x3, time-range, argmax,
+  partial-failure guard) -> 57 passed, 1 deselected; `test_sleepers_apply_gate_and_order`
+  needed no expectation change (formula order identical for its seed).
+- **Spec §7:** erratum applied to design.md same day (failed items stay pending; no
+  terminal `unjudged` row). `.gitignore` gained `*.egg-info/`, `.superpowers/`,
+  `dist/`, `build/`.
