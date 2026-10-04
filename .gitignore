@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 .venv/
@@ -30,3 +30,5 @@ build/
 
 # Local agent/review state (never commit dumps)
 .superpowers/
+# screen recordings are demo artifacts, never repo content
+*.mp4
