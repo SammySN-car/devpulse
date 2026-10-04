@@ -1,4 +1,4 @@
-﻿# devpulse
+# devpulse
 
 A Discord bot that gathers what is moving in tech - new releases, rising GitHub
 repos, Show HN posts, dev.to articles - and judges every item with an open-weight
