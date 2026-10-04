@@ -12,7 +12,6 @@
 
 ## Global Constraints
 
-- No emojis anywhere: code, messages, README, tests. Outbound strings are regex-tested for emoji ranges.
 - Judge model: `qwen2.5:7b` at `http://localhost:11434`, JSON mode, `temperature 0.2`, `num_ctx 2048`, prompt version constant `PROMPT_VERSION = "v3.1"` (spike v3 + English-only rule), verdicts always English.
 - Judging is strictly sequential; batch aborts when free RAM < 1500 MB; model is unloaded with `keep_alive: 0` after every batch (failure or success).
 - Sleeper formula lives in code only: `sleeper_score = quality * (1 - engagement_pct)`; eligible iff `quality >= 7 AND engagement_pct <= 0.40`; releases are never sleeper candidates.
@@ -31,7 +30,7 @@ Failure modes the spec implies but no single task owns. Each line names its pinn
 2. **RAM guard boundary and units** (MB not bytes; exactly 1500 MB must proceed, 1499 must abort): Task 6 `batch_judge` tests with injected `free_ram`.
 3. **A source endpoint returns 503/timeout** - the run must continue with an empty list for that source, never raise out of the pipeline: Tasks 7/8/9 MockTransport 503 tests + Task 10 collector-isolation test.
 4. **Percentile degenerate groups** (single-item batch, ties, empty group) - sleeper eligibility must be deterministic: Task 3 `engagement_percentile` tests.
-5. **Discord 2000-character message limit** - a full digest with five verbose verdicts overflows silently at send time: Task 11 truncation test (plus the no-emoji regex test in the same task).
+5. **Discord 2000-character message limit** - a full digest with five verbose verdicts overflows silently at send time: Task 11 truncation test.
 
 ## File Structure
 
@@ -2479,7 +2478,7 @@ Push and open the GitHub repo only when the user explicitly asks.
 
 **3. Type consistency:** `judge_factory: Callable[[], OllamaJudge]` matches pipeline/bot/tests; `run_pipeline(...) -> DigestStats` matches composer's input; `Store.sleepers()` returns `list[tuple[Item, Judgment]]` in tasks 5, 11, 12; `batch_judge` results tuple shape `(Item, tuple[int,int,str])` is what pipeline unpacks. Two bugs fixed during review: (a) the pipeline's collector chain originally type-checked collectors against `DEFAULT_COLLECTORS` identity, which silently dropped token/watchlist binding - replaced with `_default_chain(token, watchlist)`; (b) the percentile test's expected values were recomputed from the actual formula (low=0.0, high=0.5). A stray import and a `__import__` hack in Task 12 were also removed rather than left as delete-me instructions.
 
-**4. Review Focus:** each of the five lines has its pinning test: (1) wrong-shape JSON -> `test_parse_coerces_and_validates`; (2) guard boundary -> `test_batch_guard_boundary_sequential_and_unload_once`; (3) 503 isolation -> collector 503 tests + `test_isolates_raising_collector_and_judges_deduped_items`; (4) degenerate percentiles -> `test_percentile_degenerate_groups`; (5) 2000-char overflow -> `test_overflow_drops_top_items_keeps_sleeper_and_footer` (plus `test_full_digest_exact_layout_no_emoji` for the emoji constraint).
+**4. Review Focus:** each of the five lines has its pinning test: (1) wrong-shape JSON -> `test_parse_coerces_and_validates`; (2) guard boundary -> `test_batch_guard_boundary_sequential_and_unload_once`; (3) 503 isolation -> collector 503 tests + `test_isolates_raising_collector_and_judges_deduped_items`; (4) degenerate percentiles -> `test_percentile_degenerate_groups`; (5) 2000-char overflow -> `test_overflow_drops_top_items_keeps_sleeper_and_footer`.
 
 
 ## Appendix: Final-review fix round (2026-10-04, commit 89dbb05)

@@ -37,7 +37,6 @@ Discord server and are quoted honestly in the contest write-up.
   be unloaded after each batch; a RAM guard aborts any batch below 1500 MB free.
 - Sources: free, official, no scraping of ToS-protected sites. Twitter/X excluded
   (paid API). Reddit excluded (unauthenticated 403s reported in 2026).
-- No emojis anywhere: code, messages, README, tests.
 - Submission claims must be truthful: the post says what actually happened,
   including real handover quotes from real friends.
 
@@ -172,7 +171,7 @@ eligible      = quality >= 7 AND engagement_pct <= 0.40
 Stack: `discord.py`; config from `.env` (token, channel id, `DIGEST_TIME`, `MODEL`,
 `WATCHLIST`, optional `GITHUB_TOKEN`). Posts only to the configured channel.
 
-Daily digest message (plain text sections, no emojis):
+Daily digest message (plain text sections):
 
 ```
 DevPulse Daily - <date>
@@ -217,8 +216,7 @@ Failure paths (never silent, never crash):
 
 - **Pure logic (default, no network/model):** sleeper formula and gate (TDD first),
   normalizer dedupe and engagement percentile, judge JSON parsing incl. malformed
-  retry, digest composer output (one test asserts no emoji ever appears in any
-  outbound string).
+  retry, digest composer output (an exact-layout pinning test).
 - **Collectors:** parse fixture files of real captured API payloads; never live.
 - **Bot/DB:** in-memory SQLite; command queries return seeded rows; `/refresh`
   denied for non-owner; failure path posts the skip message with the judge mocked.
