@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from devpulse.bot import (
+    _first_ready,
     build_run_digest,
     can_refresh,
     cmd_dig,
@@ -11,7 +12,7 @@ from devpulse.bot import (
     safe_run,
     seconds_until,
 )
-from devpulse.models import Item, Judgment
+from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.settings import Settings
 from devpulse.store import Store
 
@@ -24,7 +25,7 @@ def _seed(store, title="carol/sleeper", quality=9, pct=0.2, source="github_risin
     store.save_judgment(Judgment(url_hash=h, relevance=8, quality=quality,
                                  verdict="underrated gem. yes", model="m",
                                  prompt_version="v3.1",
-                                 judged_at="2026-10-03T00:01:00+00:00"))
+                                 judged_at=utcnow_iso()))
 
 
 def _store():
@@ -64,6 +65,12 @@ def test_safe_run_never_raises():
 
     assert safe_run(boom) == "daily run skipped: ollama down"
     assert safe_run(lambda: "ok") == "ok"
+
+
+def test_first_ready_transitions_once():
+    state: dict[str, bool] = {}
+    assert _first_ready(state) is True
+    assert _first_ready(state) is False
 
 
 def test_build_run_digest_composes_full_message():
