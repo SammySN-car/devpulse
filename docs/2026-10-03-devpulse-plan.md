@@ -1565,7 +1565,7 @@ git commit -m "feat: dev.to article collector"
 
 **Interfaces:**
 - Consumes: `Item` (3), `Store` (5), `batch_judge` + `OllamaJudge` (6), collector callables (7-9).
-- Produces: `DigestStats(scanned: int, judged: int, skipped_reason: str | None, minutes: float)`; `run_pipeline(store: Store, judge_factory: Callable[[], OllamaJudge], collectors: Sequence[Callable[[], list[Item]]] | None = None, token: str | None = None, watchlist: Sequence[str] = (), model: str = "qwen2.5:7b") -> DigestStats`. Flow: run every collector (each in its own try/except; a raising collector is treated as `[]`) -> dedupe by `url_hash` -> set `engagement_pct` within each source group -> `insert_items` -> `items_missing_judgment` -> `batch_judge` -> `save_judgment` for each result -> `record_digest`. `skipped_reason` from the guard wins over the "no new items" reason.
+- Produces: `DigestStats(scanned: int, judged: int, skipped_reason: str | None, minutes: float)`; `run_pipeline(store: Store, judge_factory: Callable[[], OllamaJudge], collectors: Sequence[Callable[[], list[Item]]] | None = None, token: str | None = None, watchlist: Sequence[str] = (), model: str = "qwen2.5:7b", *, free_ram: Callable[[], int] = free_ram_mb, guard_mb: int = 1500) -> DigestStats`. Flow: run every collector (each in its own try/except; a raising collector is treated as `[]`) -> dedupe by `url_hash` -> set `engagement_pct` within each source group -> `insert_items` -> `items_missing_judgment` -> `batch_judge` -> `save_judgment` for each result -> `record_digest`. `skipped_reason` from the guard wins over the "no new items" reason.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1604,7 +1604,7 @@ def test_isolates_raising_collector_and_judges_deduped_items():
                 _item("https://a/1?utm_source=x", source="hackernews", engagement=100)]
 
     stats = run_pipeline(store, judge_factory=FakeJudge,
-                         collectors=[exploding, good])
+                         collectors=[exploding, good], free_ram=lambda: 9999)
     assert stats.scanned == 1  # duplicates collapsed, explosion ignored
     assert stats.judged == 1
     assert stats.skipped_reason is None
@@ -1613,7 +1613,8 @@ def test_isolates_raising_collector_and_judges_deduped_items():
     assert rows[0][1].quality == 9 and rows[0][1].model == "qwen2.5:7b"
     assert store.last_digest() is not None
     # a second run judges nothing new
-    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good])
+    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                          free_ram=lambda: 9999)
     assert stats2.judged == 0
 
 
@@ -1623,6 +1624,20 @@ def test_no_new_items_and_guard_reasons():
     stats = run_pipeline(store, judge_factory=FakeJudge, collectors=[lambda: []])
     assert stats.skipped_reason == "no new items"
     assert store.last_digest()[3] == "no new items"
+
+
+def test_guard_reason_blocks_judging_when_ram_low():
+    store = Store()
+    store.init_schema()
+
+    def good():
+        return [_item("https://a/1")]
+
+    stats = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                         free_ram=lambda: 1499)
+    assert stats.judged == 0
+    assert stats.skipped_reason == "judge unavailable (free RAM below guard)"
+    assert store.judged_rows() == []
 
 
 def test_percentile_computed_within_source_group():
@@ -1636,6 +1651,7 @@ def test_percentile_computed_within_source_group():
             _item("https://g/2", source="github_rising", engagement=900, title="high"),
             _item("https://h/1", source="hackernews", engagement=5, title="hn only"),
         ]],
+        free_ram=lambda: 9999,
     )
     pending_after = store.search("")  # unused; read raw instead
     import sqlite3
@@ -1666,7 +1682,7 @@ from dataclasses import dataclass
 from .collectors.devto import collect_articles
 from .collectors.github import collect_releases, collect_rising
 from .collectors.hackernews import collect_show_hn, collect_top
-from .judge import OllamaJudge, batch_judge
+from .judge import OllamaJudge, batch_judge, free_ram_mb
 from .models import Item, Judgment, utcnow_iso
 from .normalize import engagement_percentile, url_hash
 from .store import Store
@@ -1697,6 +1713,9 @@ def run_pipeline(
     token: str | None = None,
     watchlist: Sequence[str] = (),
     model: str = "qwen2.5:7b",
+    *,
+    free_ram: Callable[[], int] = free_ram_mb,
+    guard_mb: int = 1500,
 ) -> DigestStats:
     started = time.monotonic()
     chain = list(collectors) if collectors is not None else _default_chain(token, watchlist)
@@ -1732,7 +1751,8 @@ def run_pipeline(
         store.record_digest(stats.scanned, stats.judged, stats.skipped_reason)
         return stats
 
-    results, skipped = batch_judge(pending, judge_factory())
+    results, skipped = batch_judge(pending, judge_factory(),
+                                   guard_mb=guard_mb, free_ram=free_ram)
     for item, (relevance, quality, verdict) in results:
         store.save_judgment(Judgment(
             url_hash=url_hash(item.url),
