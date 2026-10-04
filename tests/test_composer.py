@@ -41,7 +41,9 @@ def test_full_digest_exact_layout_no_emoji():
     assert "SLEEPER PICK" in msg
     assert "carol/sleeper" in msg
     assert "NEW RELEASES" in msg and "ollama v0.5" in msg
-    assert "- ollama v0.5 (release body: notes) https://r" in msg
+    release_line = next(line for line in msg.splitlines() if "ollama" in line)
+    assert release_line == "- ollama v0.5 https://r"
+    assert "release body:" not in msg
     assert "42 scanned, 18 judged, 6.4 min, qwen2.5:7b, on-device" in msg
     assert not _EMOJI.search(msg)
 
@@ -59,13 +61,24 @@ def _release_line(url):
 
 def test_release_line_appends_bare_url():
     url = "https://github.com/langchain-ai/langchain/releases/tag/v1.2.3"
-    assert _release_line(url) == f"- langchain v1.2.3 (release notes) {url}"
+    assert _release_line(url) == f"- langchain v1.2.3 {url}"
 
 
 def test_release_line_empty_url_adds_nothing():
     line = _release_line("")
-    assert line == "- langchain v1.2.3 (release notes)"
+    assert line == "- langchain v1.2.3"
     assert not line.endswith(" ")
+
+
+def test_release_body_dropped_from_digest_but_kept_on_item():
+    rel = Item(url="https://r", title="ollama v0.5", source="github_release",
+               engagement=1, context="release body: notes", fetched_at="2026-10-03")
+    msg = compose_digest("d", top=[], sleeper=None, releases=[rel],
+                         stats=_stats(judged=1), model="m")
+    assert "NEW RELEASES" in msg
+    assert "https://r" in msg
+    assert "release body:" not in msg
+    assert rel.context == "release body: notes"
 
 
 def test_sleeper_section_uses_gate_and_omits_when_ineligible():
@@ -113,7 +126,8 @@ def test_fallback_keeps_releases_when_they_fit():
 
 
 def test_fallback_overflow_drops_releases_keeps_sleeper():
-    big = [Item(url=f"https://r/{i}", title=f"rel-{i}", source="github_release",
+    big = [Item(url="https://r/" + "u" * 200,
+                title=f"rel-{i} " + "t" * 140, source="github_release",
                 engagement=1, context="c" * 400, fetched_at="2026-10-03")
            for i in range(5)]
     msg = compose_digest("d", top=[], sleeper=_row("sleeper-kept"),
