@@ -187,11 +187,16 @@ SLEEPER PICK
 "<verdict>"
 
 NEW RELEASES
-- <repo> vX.Y - <notes>        (section omitted when empty)
+- <repo> vX.Y <release-url>     (section omitted when empty)
 
 ------------------------------
 <n> scanned, <n> judged, <n> min, qwen2.5:7b, on-device
 ```
+
+[erratum 2026-10-05] Release lines render as title + bare release URL; inline
+notes text was dropped from the digest (one click plus Discord's link preview
+replace them) so the TOP 5 keeps its budget inside Discord's 2000-char message
+cap; the release body remains stored and searchable in SQLite.
 
 Slash commands (all SQLite reads unless noted):
 - `/dig <topic>` - keyword search over stored verdicts
