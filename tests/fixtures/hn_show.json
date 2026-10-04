@@ -1,0 +1,7 @@
+{
+  "hits": [
+    {"title": "Show HN: A tool I built", "url": "https://example.com/tool",
+     "points": 3531, "objectID": "1"},
+    {"title": "Show HN: No link", "points": 12, "objectID": "2"}
+  ]
+}

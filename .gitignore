@@ -22,3 +22,11 @@ server_err.txt
 # OS
 Thumbs.db
 .DS_Store
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Local agent/review state (never commit dumps)
+.superpowers/

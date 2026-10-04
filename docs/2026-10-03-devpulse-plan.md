@@ -184,6 +184,8 @@ git commit -m "chore: scaffold package, tooling, and CI"
 
 ```python
 # tests/test_settings.py
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from devpulse.settings import Settings, load_settings
@@ -231,7 +233,7 @@ def test_rejects_malformed_digest_time(tmp_path):
 
 def test_is_frozen():
     s = Settings(discord_token="t", digest_channel_id=1)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         s.discord_token = "other"  # type: ignore[misc]
 ```
 
@@ -364,7 +366,7 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'devpulse.models'`
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -391,7 +393,7 @@ class Judgment:
 
 
 def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 ```
 
 ```python
@@ -521,7 +523,7 @@ git commit -m "feat: deterministic sleeper score and eligibility gate"
 
 ```python
 # tests/test_store.py
-from devpulse.models import Item, Judgment
+from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.store import Store
 
 
@@ -531,10 +533,10 @@ def _item(url, source="hackernews", engagement=100, pct=0.0, title="t"):
 
 
 def _judge(store, quality, relevance=7, verdict="v"):
-    _h, item = store.items_missing_judgment()[-1]
+    _h, item = store.items_missing_judgment()[0]
     store.save_judgment(Judgment(url_hash=_h, relevance=relevance, quality=quality,
                                  verdict=verdict, model="qwen2.5:7b", prompt_version="v3.1",
-                                 judged_at="2026-10-03T00:01:00+00:00"))
+                                 judged_at=utcnow_iso()))
     return item
 
 
@@ -603,7 +605,7 @@ In `docs/2026-10-03-devpulse-design.md` section 6, add `engagement_pct REAL,` di
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .models import Item, Judgment
 from .normalize import url_hash
@@ -708,7 +710,7 @@ class Store:
 
     def record_digest(self, item_count: int, judged_count: int,
                       skipped_reason: str | None) -> None:
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        now = datetime.now(UTC).isoformat(timespec="seconds")
         self.conn.execute(
             "INSERT INTO digests (posted_at, item_count, judged_count, skipped_reason)"
             " VALUES (?, ?, ?, ?)",
@@ -724,7 +726,7 @@ class Store:
         )
         args = list(params)
         if since_days is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
             sql += " AND j.judged_at >= ?"
             args.append(cutoff)
         sql += " ORDER BY j.quality DESC, i.engagement ASC"
@@ -1022,7 +1024,7 @@ def batch_judge(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_judge.py -v`
-Expected: 5 passed (live deselected). Then, with Ollama running: `python -m pytest -m live tests/test_judge.py -v` -> 1 passed.
+Expected: 6 passed (live deselected). Then, with Ollama running: `python -m pytest -m live tests/test_judge.py -v` -> 1 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -1089,7 +1091,7 @@ git commit -m "feat: prompt v3.1 judge with retry, ram guard, unload"
 ```python
 # tests/test_collectors_github.py
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -1129,7 +1131,7 @@ def test_releases_filters_by_window():
     items = collect_releases(
         ["ollama/ollama"],
         transport=_transport("github_releases.json"),
-        now=datetime(2026, 10, 3, 6, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 10, 3, 6, 0, tzinfo=UTC),
     )
     assert [i.title for i in items] == ["ollama/ollama v0.5.0"]
     assert items[0].source == "github_release"
@@ -1151,16 +1153,11 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'devpulse.collectors'`
 
 ```python
 # src/devpulse/collectors/__init__.py
-from .devto import collect_articles
 from .github import collect_releases, collect_rising
-from .hackernews import collect_show_hn, collect_top
 
 DEFAULT_COLLECTORS = [
     collect_rising,
     collect_releases,
-    collect_show_hn,
-    collect_top,
-    collect_articles,
 ]
 ```
 
@@ -1168,8 +1165,8 @@ DEFAULT_COLLECTORS = [
 # src/devpulse/collectors/github.py
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from typing import Sequence
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
@@ -1223,7 +1220,7 @@ def collect_releases(watchlist: Sequence[str], token: str | None = None,
                      transport: httpx.BaseTransport | None = None,
                      now: datetime | None = None,
                      since_hours: int = 72, per_repo_cap: int = 2) -> list[Item]:
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     cutoff = current - timedelta(hours=since_hours)
     out: list[Item] = []
     for repo in watchlist:
@@ -1396,6 +1393,23 @@ def collect_top(limit: int = 8, transport: httpx.BaseTransport | None = None) ->
     return _to_items(_get({"tags": "front_page", "hitsPerPage": limit}, transport))[:limit]
 ```
 
+- [ ] **Step 4b: Register the collector in the package registry**
+
+Append to `src/devpulse/collectors/__init__.py` (full resulting content):
+
+```python
+# src/devpulse/collectors/__init__.py
+from .github import collect_releases, collect_rising
+from .hackernews import collect_show_hn, collect_top
+
+DEFAULT_COLLECTORS = [
+    collect_rising,
+    collect_releases,
+    collect_show_hn,
+    collect_top,
+]
+```
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_collectors_hn.py -v`
@@ -1404,7 +1418,7 @@ Expected: 3 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/devpulse/collectors/hackernews.py tests/fixtures/hn_*.json tests/test_collectors_hn.py
+git add src/devpulse/collectors/hackernews.py src/devpulse/collectors/__init__.py tests/fixtures/hn_*.json tests/test_collectors_hn.py
 git commit -m "feat: hacker news show and top collectors via algolia"
 ```
 
@@ -1511,6 +1525,25 @@ def collect_articles(limit: int = 8, transport: httpx.BaseTransport | None = Non
     return out
 ```
 
+- [ ] **Step 4b: Register the collector in the package registry**
+
+Append to `src/devpulse/collectors/__init__.py` (full resulting content):
+
+```python
+# src/devpulse/collectors/__init__.py
+from .devto import collect_articles
+from .github import collect_releases, collect_rising
+from .hackernews import collect_show_hn, collect_top
+
+DEFAULT_COLLECTORS = [
+    collect_rising,
+    collect_releases,
+    collect_show_hn,
+    collect_top,
+    collect_articles,
+]
+```
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_collectors_devto.py -v`
@@ -1519,7 +1552,7 @@ Expected: 2 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/devpulse/collectors/devto.py tests/fixtures/devto_articles.json tests/test_collectors_devto.py
+git add src/devpulse/collectors/devto.py src/devpulse/collectors/__init__.py tests/fixtures/devto_articles.json tests/test_collectors_devto.py
 git commit -m "feat: dev.to article collector"
 ```
 
@@ -1532,7 +1565,7 @@ git commit -m "feat: dev.to article collector"
 
 **Interfaces:**
 - Consumes: `Item` (3), `Store` (5), `batch_judge` + `OllamaJudge` (6), collector callables (7-9).
-- Produces: `DigestStats(scanned: int, judged: int, skipped_reason: str | None, minutes: float)`; `run_pipeline(store: Store, judge_factory: Callable[[], OllamaJudge], collectors: Sequence[Callable[[], list[Item]]] | None = None, token: str | None = None, watchlist: Sequence[str] = (), model: str = "qwen2.5:7b") -> DigestStats`. Flow: run every collector (each in its own try/except; a raising collector is treated as `[]`) -> dedupe by `url_hash` -> set `engagement_pct` within each source group -> `insert_items` -> `items_missing_judgment` -> `batch_judge` -> `save_judgment` for each result -> `record_digest`. `skipped_reason` from the guard wins over the "no new items" reason.
+- Produces: `DigestStats(scanned: int, judged: int, skipped_reason: str | None, minutes: float)`; `run_pipeline(store: Store, judge_factory: Callable[[], OllamaJudge], collectors: Sequence[Callable[[], list[Item]]] | None = None, token: str | None = None, watchlist: Sequence[str] = (), model: str = "qwen2.5:7b", *, free_ram: Callable[[], int] = free_ram_mb, guard_mb: int = 1500) -> DigestStats`. Flow: run every collector (each in its own try/except; a raising collector is treated as `[]`) -> dedupe by `url_hash` -> set `engagement_pct` within each source group -> `insert_items` -> `items_missing_judgment` -> `batch_judge` -> `save_judgment` for each result -> `record_digest`. `skipped_reason` from the guard wins over the "no new items" reason.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1571,7 +1604,7 @@ def test_isolates_raising_collector_and_judges_deduped_items():
                 _item("https://a/1?utm_source=x", source="hackernews", engagement=100)]
 
     stats = run_pipeline(store, judge_factory=FakeJudge,
-                         collectors=[exploding, good])
+                         collectors=[exploding, good], free_ram=lambda: 9999)
     assert stats.scanned == 1  # duplicates collapsed, explosion ignored
     assert stats.judged == 1
     assert stats.skipped_reason is None
@@ -1580,7 +1613,8 @@ def test_isolates_raising_collector_and_judges_deduped_items():
     assert rows[0][1].quality == 9 and rows[0][1].model == "qwen2.5:7b"
     assert store.last_digest() is not None
     # a second run judges nothing new
-    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good])
+    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                          free_ram=lambda: 9999)
     assert stats2.judged == 0
 
 
@@ -1590,6 +1624,20 @@ def test_no_new_items_and_guard_reasons():
     stats = run_pipeline(store, judge_factory=FakeJudge, collectors=[lambda: []])
     assert stats.skipped_reason == "no new items"
     assert store.last_digest()[3] == "no new items"
+
+
+def test_guard_reason_blocks_judging_when_ram_low():
+    store = Store()
+    store.init_schema()
+
+    def good():
+        return [_item("https://a/1")]
+
+    stats = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                         free_ram=lambda: 1499)
+    assert stats.judged == 0
+    assert stats.skipped_reason == "judge unavailable (free RAM below guard)"
+    assert store.judged_rows() == []
 
 
 def test_percentile_computed_within_source_group():
@@ -1603,6 +1651,7 @@ def test_percentile_computed_within_source_group():
             _item("https://g/2", source="github_rising", engagement=900, title="high"),
             _item("https://h/1", source="hackernews", engagement=5, title="hn only"),
         ]],
+        free_ram=lambda: 9999,
     )
     pending_after = store.search("")  # unused; read raw instead
     import sqlite3
@@ -1633,7 +1682,7 @@ from dataclasses import dataclass
 from .collectors.devto import collect_articles
 from .collectors.github import collect_releases, collect_rising
 from .collectors.hackernews import collect_show_hn, collect_top
-from .judge import OllamaJudge, batch_judge
+from .judge import OllamaJudge, batch_judge, free_ram_mb
 from .models import Item, Judgment, utcnow_iso
 from .normalize import engagement_percentile, url_hash
 from .store import Store
@@ -1664,6 +1713,9 @@ def run_pipeline(
     token: str | None = None,
     watchlist: Sequence[str] = (),
     model: str = "qwen2.5:7b",
+    *,
+    free_ram: Callable[[], int] = free_ram_mb,
+    guard_mb: int = 1500,
 ) -> DigestStats:
     started = time.monotonic()
     chain = list(collectors) if collectors is not None else _default_chain(token, watchlist)
@@ -1699,7 +1751,8 @@ def run_pipeline(
         store.record_digest(stats.scanned, stats.judged, stats.skipped_reason)
         return stats
 
-    results, skipped = batch_judge(pending, judge_factory())
+    results, skipped = batch_judge(pending, judge_factory(),
+                                   guard_mb=guard_mb, free_ram=free_ram)
     for item, (relevance, quality, verdict) in results:
         store.save_judgment(Judgment(
             url_hash=url_hash(item.url),
@@ -1719,7 +1772,7 @@ Note: `judge_factory` in tests returns the same `FakeJudge` instance each call, 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_pipeline.py -v`
-Expected: 3 passed. If `pcts["high"]` assertion is wrong (1 of 2 below 900 -> 0.5 is correct: only engagement 10 < 900), keep 0.5. Fix only the test's misleading comment, not the code.
+Expected: 4 passed. If `pcts["high"]` assertion is wrong (1 of 2 below 900 -> 0.5 is correct: only engagement 10 < 900), keep 0.5. Fix only the test's misleading comment, not the code.
 
 - [ ] **Step 5: Commit**
 
@@ -1737,7 +1790,7 @@ git commit -m "feat: pipeline with source isolation, diff, percentile, guard"
 
 **Interfaces:**
 - Consumes: `Item`, `Judgment` (3), `is_sleeper_eligible` (4), `DigestStats` (10).
-- Produces: `compose_digest(date_str: str, top: list[tuple[Item, Judgment]], sleeper: tuple[Item, Judgment] | None, releases: list[Item], stats: DigestStats, model: str) -> str`. Section order per spec section 9: title, TOP 5 FOR YOU, SLEEPER PICK, NEW RELEASES (omitted when empty), footer `scanned/judged/minutes/model/on-device`. Guard skipped: returns `daily run skipped: <reason>` when `stats.skipped_reason` is set and judgment ran (not the "no new items" case). Message never exceeds 1900 chars: drop lowest-ranked top items first, never the footer or sleeper. Source labels: `github_rising` -> `github`, `devto` -> `dev.to`, others verbatim.
+- Produces: `compose_digest(date_str: str, top: list[tuple[Item, Judgment]], sleeper: tuple[Item, Judgment] | None, releases: list[Item], stats: DigestStats, model: str) -> str`. Section order per spec section 9: title, TOP 5 FOR YOU, SLEEPER PICK, NEW RELEASES (omitted when empty), footer `scanned/judged/minutes/model/on-device`. Guard skipped: returns `daily run skipped: <reason>` when `stats.skipped_reason` is set and judgment ran (not the "no new items" case). Message never exceeds 1900 chars: drop lowest-ranked top items first, never the footer or sleeper; titles clipped at 150 chars and verdicts at 300 (with ...) at render; when no top item fits, the fallback tries sleeper+releases then sleeper alone (releases expendable under overflow). Source labels: `github_rising` -> `github`, `devto` -> `dev.to`, others verbatim.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1811,6 +1864,39 @@ def test_overflow_drops_top_items_keeps_sleeper_and_footer():
     assert "on-device" in msg
 
 
+def test_render_caps_title_and_verdict():
+    item, j = _row("t" * 400, verdict="v" * 1000)
+    msg = compose_digest("d", top=[(item, j)], sleeper=None, releases=[],
+                         stats=_stats(), model="m")
+    assert len(msg) <= 1900
+    assert "v" * 301 not in msg
+    assert "t" * 151 not in msg
+    assert "..." in msg
+
+
+def test_fallback_keeps_releases_when_they_fit():
+    msg = compose_digest("d", top=[], sleeper=_row("sleeper-kept"),
+                         releases=[Item(url="https://r", title="ollama v0.5",
+                                        source="github_release", engagement=1,
+                                        context="release body: notes",
+                                        fetched_at="2026-10-03")],
+                         stats=_stats(), model="m")
+    assert "sleeper-kept" in msg
+    assert "ollama v0.5" in msg
+    assert len(msg) <= 1900
+
+
+def test_fallback_overflow_drops_releases_keeps_sleeper():
+    big = [Item(url=f"https://r/{i}", title=f"rel-{i}", source="github_release",
+                engagement=1, context="c" * 400, fetched_at="2026-10-03")
+           for i in range(5)]
+    msg = compose_digest("d", top=[], sleeper=_row("sleeper-kept"),
+                         releases=big, stats=_stats(), model="m")
+    assert "sleeper-kept" in msg
+    assert "rel-0" not in msg
+    assert len(msg) <= 1900
+
+
 def test_no_new_items_and_skip_messages():
     msg = compose_digest("d", top=[], sleeper=None, releases=[],
                          stats=_stats(scanned=42, judged=0, reason="no new items"),
@@ -1843,6 +1929,8 @@ from .scoring import is_sleeper_eligible
 
 DISCORD_LIMIT = 2000
 MAX_MESSAGE = 1900  # headroom below the Discord limit
+TITLE_CAP = 150
+VERDICT_CAP = 300
 
 _SOURCE_LABELS = {
     "github_rising": "github",
@@ -1854,6 +1942,10 @@ _SOURCE_LABELS = {
 
 def _label(item: Item) -> str:
     return _SOURCE_LABELS.get(item.source, item.source)
+
+
+def _clip(text: str, cap: int) -> str:
+    return text if len(text) <= cap else text[:cap] + "..."
 
 
 def compose_digest(date_str: str, top: list[tuple[Item, Judgment]],
@@ -1870,17 +1962,21 @@ def compose_digest(date_str: str, top: list[tuple[Item, Judgment]],
     lines = [f"DevPulse Daily - {date_str}", "-" * 28]
 
     ranked = list(top[:5])
+    rendered_sleeper = _render_sleeper(sleeper) if sleeper_eligible(sleeper) else ""
+    rendered_releases = _render_releases(releases)
     while ranked:
-        candidate = _render_top(ranked)
-        rendered_sleeper = _render_sleeper(sleeper) if sleeper_eligible(sleeper) else ""
-        body = "\n\n".join(x for x in (candidate, rendered_sleeper,
-                                       _render_releases(releases)) if x)
-        if len("\n".join(lines)) + len(body) + len(footer) + 12 <= MAX_MESSAGE:
+        body = "\n\n".join(x for x in (_render_top(ranked), rendered_sleeper,
+                                       rendered_releases) if x)
+        if len("\n".join(lines)) + len(body) + len(footer) + 31 <= MAX_MESSAGE:
             lines.append(body)
             break
         ranked.pop()  # drop lowest-ranked top item first
     else:
-        lines.append(_render_sleeper(sleeper) if sleeper_eligible(sleeper) else "")
+        body = "\n\n".join(x for x in (rendered_sleeper, rendered_releases) if x)
+        if len("\n".join(lines)) + len(body) + len(footer) + 31 > MAX_MESSAGE:
+            body = rendered_sleeper  # releases expendable under overflow; sleeper kept
+        if body:
+            lines.append(body)
 
     lines.append("-" * 28)
     lines.append(footer)
@@ -1899,9 +1995,10 @@ def sleeper_eligible(sleeper: tuple[Item, Judgment] | None) -> bool:
 def _render_top(top: list[tuple[Item, Judgment]]) -> str:
     lines = ["TOP 5 FOR YOU"]
     for n, (item, j) in enumerate(top, 1):
-        lines.append(f"{n}. {item.title} [{_label(item)}, {item.engagement}]")
+        title = _clip(item.title, TITLE_CAP)
+        lines.append(f"{n}. {title} [{_label(item)}, {item.engagement}]")
         lines.append(f"   rel {j.relevance} | q {j.quality}")
-        lines.append(f'   "{j.verdict}"')
+        lines.append(f'   "{_clip(j.verdict, VERDICT_CAP)}"')
     return "\n".join(lines)
 
 
@@ -1912,9 +2009,9 @@ def _render_sleeper(sleeper: tuple[Item, Judgment] | None) -> str:
     pct = round(item.engagement_pct * 100)
     return (
         "SLEEPER PICK\n"
-        f"{item.title} [{_label(item)}, {item.engagement}]\n"
+        f"{_clip(item.title, TITLE_CAP)} [{_label(item)}, {item.engagement}]\n"
         f"q {j.quality}, engagement bottom {pct}% of its source class\n"
-        f'"{j.verdict}"'
+        f'"{_clip(j.verdict, VERDICT_CAP)}"'
     )
 
 
@@ -1923,14 +2020,14 @@ def _render_releases(releases: list[Item]) -> str:
         return ""
     lines = ["NEW RELEASES"]
     for rel in releases[:5]:
-        lines.append(f"- {rel.title} ({rel.context})")
+        lines.append(f"- {_clip(rel.title, TITLE_CAP)} ({rel.context})")
     return "\n".join(lines)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_composer.py -v`
-Expected: 4 passed
+Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
@@ -1948,19 +2045,19 @@ git commit -m "feat: digest composer with emoji guard and discord length cap"
 
 **Interfaces:**
 - Consumes: `Settings` (2), `Store` (5), `run_pipeline` (10), `compose_digest` (11), `OllamaJudge` (6).
-- Produces: `can_refresh(user_id: int, owner_id: int | None) -> bool`; `seconds_until(hhmm: str, now: datetime) -> float` (local machine time, rolls to next day); `cmd_dig(store: Store, topic: str) -> str`; `cmd_sleeper(store: Store, days: int = 7) -> str`; `cmd_releases(store: Store) -> str`; `cmd_status(store: Store) -> str`; `safe_run(run_digest: Callable[[], str]) -> str` (never raises; returns `daily run skipped: <exc>`); `build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -> discord.Client` (syncs slash commands on ready, schedules at `settings.digest_time`, sends via `settings.digest_channel_id`); `build_run_digest(settings: Settings, store: Store, collectors=None, judge_factory=None) -> Callable[[], str]` (pipeline + rank top 5 by relevance then quality + sleeper + releases + compose); `main()` loads settings, opens `devpulse.db`, runs the bot.
+- Produces: `can_refresh(user_id: int, owner_id: int | None) -> bool`; `seconds_until(hhmm: str, now: datetime) -> float` (local machine time, rolls to next day); `cmd_dig(store: Store, topic: str) -> str`; `cmd_sleeper(store: Store, days: int = 7) -> str`; `cmd_releases(store: Store) -> str`; `cmd_status(store: Store) -> str`; `safe_run(run_digest: Callable[[], str]) -> str` (never raises; returns `daily run skipped: <exc>`); `build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -> discord.Client` (_first_ready guard so reconnects neither re-sync commands nor stack scheduler tasks; syncs slash commands on first ready, schedules at `settings.digest_time`, sends via `settings.digest_channel_id`); `build_run_digest(settings: Settings, store: Store, collectors=None, judge_factory=None, *, free_ram=free_ram_mb, guard_mb=1500) -> Callable[[], str]` (pipeline + rank top 5 by relevance then quality + sleeper + releases + compose); `main()` loads settings, opens `devpulse.db`, runs the bot.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_bot.py
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from devpulse.bot import (
-    build_run_digest, can_refresh, cmd_dig, cmd_releases, cmd_sleeper, cmd_status,
-    safe_run, seconds_until,
+    _first_ready, build_run_digest, can_refresh, cmd_dig, cmd_releases,
+    cmd_sleeper, cmd_status, safe_run, seconds_until,
 )
-from devpulse.models import Item, Judgment
+from devpulse.models import Item, Judgment, utcnow_iso
 from devpulse.settings import Settings
 from devpulse.store import Store
 
@@ -1973,7 +2070,7 @@ def _seed(store, title="carol/sleeper", quality=9, pct=0.2, source="github_risin
     store.save_judgment(Judgment(url_hash=h, relevance=8, quality=quality,
                                  verdict="underrated gem. yes", model="m",
                                  prompt_version="v3.1",
-                                 judged_at="2026-10-03T00:01:00+00:00"))
+                                 judged_at=utcnow_iso()))
 
 
 def _store():
@@ -2015,6 +2112,12 @@ def test_safe_run_never_raises():
     assert safe_run(lambda: "ok") == "ok"
 
 
+def test_first_ready_transitions_once():
+    state: dict[str, bool] = {}
+    assert _first_ready(state) is True
+    assert _first_ready(state) is False
+
+
 def test_build_run_digest_composes_full_message():
     s = _store()
     settings = Settings(discord_token="t", digest_channel_id=1,
@@ -2033,11 +2136,42 @@ def test_build_run_digest_composes_full_message():
                                   source="github_rising", engagement=50,
                                   context="c", fetched_at="2026-10-03T00:00:00+00:00")]],
         judge_factory=FakeJudge,
+        free_ram=lambda: 9999,
     )
     msg = run()
     assert "DevPulse Daily -" in msg
     assert "TOP 5 FOR YOU" in msg and "alice/tool" in msg
     assert "on-device" in msg
+
+
+def test_build_run_digest_ranks_by_relevance_then_quality():
+    s = _store()
+    settings = Settings(discord_token="t", digest_channel_id=1,
+                        watchlist=("a/b",), model="qwen2.5:7b")
+
+    class RankedJudge:
+        def judge(self, item):
+            table = {"rank-low": (3, 9), "rank-mid": (7, 7),
+                     "rank-tie": (7, 9), "rank-high": (9, 8)}
+            rel, qual = table[item.title]
+            return (rel, qual, "verdict. yes")
+
+        def unload(self):
+            pass
+
+    def scramble():
+        return [Item(url=f"https://x/{t}", title=t, source="github_rising",
+                     engagement=10, context="c",
+                     fetched_at="2026-10-03T00:00:00+00:00")
+                for t in ("rank-low", "rank-mid", "rank-tie", "rank-high")]
+
+    run = build_run_digest(settings, s, collectors=[scramble],
+                           judge_factory=RankedJudge,
+                           free_ram=lambda: 9999)
+    msg = run()
+    order = [msg.index(t)
+             for t in ("rank-high", "rank-tie", "rank-mid", "rank-low")]
+    assert order == sorted(order)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2053,13 +2187,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 from discord import app_commands
 
 from .composer import compose_digest
-from .judge import OllamaJudge
+from .judge import OllamaJudge, free_ram_mb
 from .models import Item
 from .pipeline import run_pipeline
 from .settings import Settings
@@ -2083,6 +2217,13 @@ def safe_run(run_digest: Callable[[], str]) -> str:
         return run_digest()
     except Exception as exc:
         return f"daily run skipped: {exc}"
+
+
+def _first_ready(state: dict[str, bool]) -> bool:
+    if state.get("started"):
+        return False
+    state["started"] = True
+    return True
 
 
 def cmd_dig(store: Store, topic: str) -> str:
@@ -2125,13 +2266,16 @@ def cmd_status(store: Store) -> str:
 
 def build_run_digest(settings: Settings, store: Store,
                      collectors: Sequence[Callable[[], list[Item]]] | None = None,
-                     judge_factory: Callable[[], OllamaJudge] | None = None
+                     judge_factory: Callable[[], OllamaJudge] | None = None,
+                     *, free_ram: Callable[[], int] = free_ram_mb,
+                     guard_mb: int = 1500,
                      ) -> Callable[[], str]:
     def run() -> str:
         factory = judge_factory or (lambda: OllamaJudge(settings.model))
         stats = run_pipeline(store, judge_factory=factory, collectors=collectors,
                              token=settings.github_token, watchlist=settings.watchlist,
-                             model=settings.model)
+                             model=settings.model, free_ram=free_ram,
+                             guard_mb=guard_mb)
         ranked = sorted(store.judged_rows(),
                         key=lambda pair: (pair[1].relevance, pair[1].quality),
                         reverse=True)[:5]
@@ -2188,8 +2332,12 @@ def build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -
             if channel is not None:
                 await channel.send(msg[:1999])
 
+    state: dict[str, bool] = {}
+
     @bot.event
     async def on_ready() -> None:
+        if not _first_ready(state):
+            return
         await tree.sync()
         bot.loop.create_task(scheduler())
 
@@ -2228,7 +2376,7 @@ devpulse = "devpulse.main:main"
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_bot.py -v`
-Expected: 5 passed. Then full suite: `python -m pytest -v` -> all green; `ruff check .` -> clean.
+Expected: 7 passed. Then full suite: `python -m pytest -v` -> all green; `ruff check .` -> clean.
 
 - [ ] **Step 6: Commit**
 
@@ -2332,3 +2480,30 @@ Push and open the GitHub repo only when the user explicitly asks.
 **3. Type consistency:** `judge_factory: Callable[[], OllamaJudge]` matches pipeline/bot/tests; `run_pipeline(...) -> DigestStats` matches composer's input; `Store.sleepers()` returns `list[tuple[Item, Judgment]]` in tasks 5, 11, 12; `batch_judge` results tuple shape `(Item, tuple[int,int,str])` is what pipeline unpacks. Two bugs fixed during review: (a) the pipeline's collector chain originally type-checked collectors against `DEFAULT_COLLECTORS` identity, which silently dropped token/watchlist binding - replaced with `_default_chain(token, watchlist)`; (b) the percentile test's expected values were recomputed from the actual formula (low=0.0, high=0.5). A stray import and a `__import__` hack in Task 12 were also removed rather than left as delete-me instructions.
 
 **4. Review Focus:** each of the five lines has its pinning test: (1) wrong-shape JSON -> `test_parse_coerces_and_validates`; (2) guard boundary -> `test_batch_guard_boundary_sequential_and_unload_once`; (3) 503 isolation -> collector 503 tests + `test_isolates_raising_collector_and_judges_deduped_items`; (4) degenerate percentiles -> `test_percentile_degenerate_groups`; (5) 2000-char overflow -> `test_overflow_drops_top_items_keeps_sleeper_and_footer` (plus `test_full_digest_exact_layout_no_emoji` for the emoji constraint).
+
+
+## Appendix: Final-review fix round (2026-10-04, commit 89dbb05)
+
+Post-Task-13 whole-branch review findings resolved in code; the task blocks above
+predate this round where they conflict. Authoritative deltas:
+
+- **Store (Task 5):** `sqlite3.connect(path, check_same_thread=False)` + `threading.RLock`
+  guarding all 11 conn-touching methods (C1: Store was main-thread, digest runs via
+  `asyncio.to_thread`). `_joined` gains `order: str = "j.quality DESC, i.engagement ASC"`;
+  `sleepers()` passes `"j.quality * (1.0 - i.engagement_pct) DESC, i.engagement ASC"`
+  (spec §8 argmax; `judged_rows`/`search` keep default).
+- **batch_judge (Task 6):** after the loop, when `items` non-empty, `skipped is None`,
+  and `results` empty -> `skipped = "judge unavailable (N items failed)"` (all-fail
+  surfacing; guard message preserved, partial failures leave `skipped=None`).
+  `finally: judge.unload()` wrapped in try/except + print so unreachable Ollama never
+  escapes `batch_judge` (record_digest now runs on outage path).
+- **bot (Task 12):** `ranked` filters `pair[0].source != "github_release"` before sort
+  (spec §5: releases only in their own section; releases stay judged to leave pending).
+- **settings (Task 2):** DIGEST_TIME regex `^([01]\d|2[0-3]):[0-5]\d$` (was format-only;
+  `24:00` crashed `seconds_until` inside the scheduler task).
+- **Tests:** 9 added (thread x2, release-rank, judge-failure x3, time-range, argmax,
+  partial-failure guard) -> 57 passed, 1 deselected; `test_sleepers_apply_gate_and_order`
+  needed no expectation change (formula order identical for its seed).
+- **Spec §7:** erratum applied to design.md same day (failed items stay pending; no
+  terminal `unjudged` row). `.gitignore` gained `*.egg-info/`, `.superpowers/`,
+  `dist/`, `build/`.

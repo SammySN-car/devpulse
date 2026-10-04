@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "full_name": "alice/tiny-linter",
+      "html_url": "https://github.com/alice/tiny-linter",
+      "stargazers_count": 2571,
+      "description": "A tiny linter with unusual depth",
+      "language": "Rust"
+    },
+    {
+      "full_name": "bob/vibes",
+      "html_url": "https://github.com/bob/vibes",
+      "stargazers_count": 88,
+      "description": null,
+      "language": null
+    }
+  ]
+}
