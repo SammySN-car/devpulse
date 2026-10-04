@@ -32,7 +32,8 @@ def test_isolates_raising_collector_and_judges_deduped_items():
                 _item("https://a/1?utm_source=x", source="hackernews", engagement=100)]
 
     stats = run_pipeline(store, judge_factory=FakeJudge,
-                         collectors=[exploding, good])
+                         collectors=[exploding, good],
+                         free_ram=lambda: 9999)
     assert stats.scanned == 1  # duplicates collapsed, explosion ignored
     assert stats.judged == 1
     assert stats.skipped_reason is None
@@ -41,7 +42,8 @@ def test_isolates_raising_collector_and_judges_deduped_items():
     assert rows[0][1].quality == 9 and rows[0][1].model == "qwen2.5:7b"
     assert store.last_digest() is not None
     # a second run judges nothing new
-    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good])
+    stats2 = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                          free_ram=lambda: 9999)
     assert stats2.judged == 0
 
 
@@ -64,6 +66,7 @@ def test_percentile_computed_within_source_group():
             _item("https://g/2", source="github_rising", engagement=900, title="high"),
             _item("https://h/1", source="hackernews", engagement=5, title="hn only"),
         ]],
+        free_ram=lambda: 9999,
     )
     pending_after = store.search("")  # unused; read raw instead
     conn = store.conn
@@ -73,3 +76,17 @@ def test_percentile_computed_within_source_group():
     assert pcts["high"] == 0.5    # exactly one of two github_rising items is lower
     assert pcts["hn only"] == 0.0  # single-item group is neutral-eligible by design
     assert pending_after is not None
+
+
+def test_guard_reason_blocks_judging_when_ram_low():
+    store = Store()
+    store.init_schema()
+
+    def good():
+        return [_item("https://a/1")]
+
+    stats = run_pipeline(store, judge_factory=FakeJudge, collectors=[good],
+                         free_ram=lambda: 1499)
+    assert stats.judged == 0
+    assert stats.skipped_reason == "judge unavailable (free RAM below guard)"
+    assert store.judged_rows() == []

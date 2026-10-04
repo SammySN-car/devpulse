@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from .collectors.devto import collect_articles
 from .collectors.github import collect_releases, collect_rising
 from .collectors.hackernews import collect_show_hn, collect_top
-from .judge import OllamaJudge, batch_judge
+from .judge import OllamaJudge, batch_judge, free_ram_mb
 from .models import Item, Judgment, utcnow_iso
 from .normalize import engagement_percentile, url_hash
 from .store import Store
@@ -39,6 +39,9 @@ def run_pipeline(
     token: str | None = None,
     watchlist: Sequence[str] = (),
     model: str = "qwen2.5:7b",
+    *,
+    free_ram: Callable[[], int] = free_ram_mb,
+    guard_mb: int = 1500,
 ) -> DigestStats:
     started = time.monotonic()
     chain = list(collectors) if collectors is not None else _default_chain(token, watchlist)
@@ -74,7 +77,8 @@ def run_pipeline(
         store.record_digest(stats.scanned, stats.judged, stats.skipped_reason)
         return stats
 
-    results, skipped = batch_judge(pending, judge_factory())
+    results, skipped = batch_judge(pending, judge_factory(),
+                                   guard_mb=guard_mb, free_ram=free_ram)
     for item, (relevance, quality, verdict) in results:
         store.save_judgment(Judgment(
             url_hash=url_hash(item.url),
