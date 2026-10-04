@@ -2051,7 +2051,7 @@ git commit -m "feat: digest composer with emoji guard and discord length cap"
 
 ```python
 # tests/test_bot.py
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from devpulse.bot import (
     build_run_digest, can_refresh, cmd_dig, cmd_releases, cmd_sleeper, cmd_status,
@@ -2150,7 +2150,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 from discord import app_commands
