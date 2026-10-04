@@ -67,6 +67,39 @@ def test_overflow_drops_top_items_keeps_sleeper_and_footer():
     assert "on-device" in msg
 
 
+def test_render_caps_title_and_verdict():
+    item, j = _row("t" * 400, verdict="v" * 1000)
+    msg = compose_digest("d", top=[(item, j)], sleeper=None, releases=[],
+                         stats=_stats(), model="m")
+    assert len(msg) <= 1900
+    assert "v" * 301 not in msg
+    assert "t" * 151 not in msg
+    assert "..." in msg
+
+
+def test_fallback_keeps_releases_when_they_fit():
+    msg = compose_digest("d", top=[], sleeper=_row("sleeper-kept"),
+                         releases=[Item(url="https://r", title="ollama v0.5",
+                                        source="github_release", engagement=1,
+                                        context="release body: notes",
+                                        fetched_at="2026-10-03")],
+                         stats=_stats(), model="m")
+    assert "sleeper-kept" in msg
+    assert "ollama v0.5" in msg
+    assert len(msg) <= 1900
+
+
+def test_fallback_overflow_drops_releases_keeps_sleeper():
+    big = [Item(url=f"https://r/{i}", title=f"rel-{i}", source="github_release",
+                engagement=1, context="c" * 400, fetched_at="2026-10-03")
+           for i in range(5)]
+    msg = compose_digest("d", top=[], sleeper=_row("sleeper-kept"),
+                         releases=big, stats=_stats(), model="m")
+    assert "sleeper-kept" in msg
+    assert "rel-0" not in msg
+    assert len(msg) <= 1900
+
+
 def test_no_new_items_and_skip_messages():
     msg = compose_digest("d", top=[], sleeper=None, releases=[],
                          stats=_stats(scanned=42, judged=0, reason="no new items"),
