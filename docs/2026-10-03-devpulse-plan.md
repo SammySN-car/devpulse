@@ -2045,7 +2045,7 @@ git commit -m "feat: digest composer with emoji guard and discord length cap"
 
 **Interfaces:**
 - Consumes: `Settings` (2), `Store` (5), `run_pipeline` (10), `compose_digest` (11), `OllamaJudge` (6).
-- Produces: `can_refresh(user_id: int, owner_id: int | None) -> bool`; `seconds_until(hhmm: str, now: datetime) -> float` (local machine time, rolls to next day); `cmd_dig(store: Store, topic: str) -> str`; `cmd_sleeper(store: Store, days: int = 7) -> str`; `cmd_releases(store: Store) -> str`; `cmd_status(store: Store) -> str`; `safe_run(run_digest: Callable[[], str]) -> str` (never raises; returns `daily run skipped: <exc>`); `build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -> discord.Client` (syncs slash commands on ready, schedules at `settings.digest_time`, sends via `settings.digest_channel_id`); `build_run_digest(settings: Settings, store: Store, collectors=None, judge_factory=None) -> Callable[[], str]` (pipeline + rank top 5 by relevance then quality + sleeper + releases + compose); `main()` loads settings, opens `devpulse.db`, runs the bot.
+- Produces: `can_refresh(user_id: int, owner_id: int | None) -> bool`; `seconds_until(hhmm: str, now: datetime) -> float` (local machine time, rolls to next day); `cmd_dig(store: Store, topic: str) -> str`; `cmd_sleeper(store: Store, days: int = 7) -> str`; `cmd_releases(store: Store) -> str`; `cmd_status(store: Store) -> str`; `safe_run(run_digest: Callable[[], str]) -> str` (never raises; returns `daily run skipped: <exc>`); `build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -> discord.Client` (_first_ready guard so reconnects neither re-sync commands nor stack scheduler tasks; syncs slash commands on first ready, schedules at `settings.digest_time`, sends via `settings.digest_channel_id`); `build_run_digest(settings: Settings, store: Store, collectors=None, judge_factory=None, *, free_ram=free_ram_mb, guard_mb=1500) -> Callable[[], str]` (pipeline + rank top 5 by relevance then quality + sleeper + releases + compose); `main()` loads settings, opens `devpulse.db`, runs the bot.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2130,11 +2130,42 @@ def test_build_run_digest_composes_full_message():
                                   source="github_rising", engagement=50,
                                   context="c", fetched_at="2026-10-03T00:00:00+00:00")]],
         judge_factory=FakeJudge,
+        free_ram=lambda: 9999,
     )
     msg = run()
     assert "DevPulse Daily -" in msg
     assert "TOP 5 FOR YOU" in msg and "alice/tool" in msg
     assert "on-device" in msg
+
+
+def test_build_run_digest_ranks_by_relevance_then_quality():
+    s = _store()
+    settings = Settings(discord_token="t", digest_channel_id=1,
+                        watchlist=("a/b",), model="qwen2.5:7b")
+
+    class RankedJudge:
+        def judge(self, item):
+            table = {"rank-low": (3, 9), "rank-mid": (7, 7),
+                     "rank-tie": (7, 9), "rank-high": (9, 8)}
+            rel, qual = table[item.title]
+            return (rel, qual, "verdict. yes")
+
+        def unload(self):
+            pass
+
+    def scramble():
+        return [Item(url=f"https://x/{t}", title=t, source="github_rising",
+                     engagement=10, context="c",
+                     fetched_at="2026-10-03T00:00:00+00:00")
+                for t in ("rank-low", "rank-mid", "rank-tie", "rank-high")]
+
+    run = build_run_digest(settings, s, collectors=[scramble],
+                           judge_factory=RankedJudge,
+                           free_ram=lambda: 9999)
+    msg = run()
+    order = [msg.index(t)
+             for t in ("rank-high", "rank-tie", "rank-mid", "rank-low")]
+    assert order == sorted(order)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2156,7 +2187,7 @@ import discord
 from discord import app_commands
 
 from .composer import compose_digest
-from .judge import OllamaJudge
+from .judge import OllamaJudge, free_ram_mb
 from .models import Item
 from .pipeline import run_pipeline
 from .settings import Settings
@@ -2180,6 +2211,13 @@ def safe_run(run_digest: Callable[[], str]) -> str:
         return run_digest()
     except Exception as exc:
         return f"daily run skipped: {exc}"
+
+
+def _first_ready(state: dict[str, bool]) -> bool:
+    if state.get("started"):
+        return False
+    state["started"] = True
+    return True
 
 
 def cmd_dig(store: Store, topic: str) -> str:
@@ -2222,13 +2260,16 @@ def cmd_status(store: Store) -> str:
 
 def build_run_digest(settings: Settings, store: Store,
                      collectors: Sequence[Callable[[], list[Item]]] | None = None,
-                     judge_factory: Callable[[], OllamaJudge] | None = None
+                     judge_factory: Callable[[], OllamaJudge] | None = None,
+                     *, free_ram: Callable[[], int] = free_ram_mb,
+                     guard_mb: int = 1500,
                      ) -> Callable[[], str]:
     def run() -> str:
         factory = judge_factory or (lambda: OllamaJudge(settings.model))
         stats = run_pipeline(store, judge_factory=factory, collectors=collectors,
                              token=settings.github_token, watchlist=settings.watchlist,
-                             model=settings.model)
+                             model=settings.model, free_ram=free_ram,
+                             guard_mb=guard_mb)
         ranked = sorted(store.judged_rows(),
                         key=lambda pair: (pair[1].relevance, pair[1].quality),
                         reverse=True)[:5]
@@ -2285,8 +2326,12 @@ def build_bot(settings: Settings, store: Store, run_digest: Callable[[], str]) -
             if channel is not None:
                 await channel.send(msg[:1999])
 
+    state: dict[str, bool] = {}
+
     @bot.event
     async def on_ready() -> None:
+        if not _first_ready(state):
+            return
         await tree.sync()
         bot.loop.create_task(scheduler())
 
